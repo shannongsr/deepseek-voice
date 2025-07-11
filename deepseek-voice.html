@@ -37,7 +37,8 @@
       console.log("识别到：", transcript);
       resultText.innerText = `你说了：${transcript}`;
 
-      if (!isAwake && transcript.includes("你好")) {
+      // 更健壮的唤醒词识别
+      if (!isAwake && /你\s*好/.test(transcript.toLowerCase())) {
         isAwake = true;
         speakText("你好，我在听。请提问。");
         return;
