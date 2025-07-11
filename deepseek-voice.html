@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
   <meta charset="UTF-8">
-  <title>DeepSeek 流式语音对话（唤醒词+持续监听修复）</title>
+  <title>DeepSeek 流式语音对话</title>
   <style>
     body { font-family: sans-serif; padding: 20px; }
     #result { white-space: pre-line; margin-top: 10px; }
@@ -10,11 +10,9 @@
 </head>
 <body>
   <h2>🎤 与 DeepSeek 流式语音对话</h2>
-  <button id="start">启动监听</button>
-  <p id="result">等待唤醒词“你好”...</p>
+  <p id="result">正在监听，请直接说话...</p>
 
   <script>
-    const startBtn = document.getElementById('start');
     const resultText = document.getElementById('result');
 
     const recognition = new webkitSpeechRecognition();
@@ -23,30 +21,20 @@
     recognition.interimResults = false;
 
     let isSpeaking = false;
-    let isAwake = false;
-    let shouldListen = false; // 控制是否允许自动重启识别
+    let shouldListen = true;
 
-    startBtn.onclick = () => {
-      shouldListen = true;
+    // 立即启动识别
+    window.onload = () => {
       recognition.start();
-      resultText.innerText = '🎙️ 正在监听中... 唤醒词：“你好”';
     };
 
     recognition.onresult = (event) => {
       const transcript = event.results[event.results.length - 1][0].transcript.trim();
       console.log("识别到：", transcript);
-      resultText.innerText = `你说了：${transcript}`;
+      resultText.innerText = `你说了：${transcript}\nDeepSeek 回复：`;
 
-      // 更健壮的唤醒词识别
-      if (!isAwake && /你\s*好/.test(transcript.toLowerCase())) {
-        isAwake = true;
-        speakText("你好，我在听。请提问。");
-        return;
-      }
-
-      if (isAwake && !isSpeaking) {
+      if (!isSpeaking) {
         stopSpeaking();
-        resultText.innerText += `\n发送内容：${transcript}\nDeepSeek 回复：`;
         sendStreamToDeepSeek(transcript);
       }
     };
