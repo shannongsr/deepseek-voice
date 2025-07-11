@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <title>DeepSeek 流式语音对话（唤醒词+持续监听修复）</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; }
+    #result { white-space: pre-line; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <h2>🎤 与 DeepSeek 流式语音对话</h2>
+  <button id="start">启动监听</button>
+  <p id="result">等待唤醒词“你好”...</p>
+
+  <script>
+    const startBtn = document.getElementById('start');
+    const resultText = document.getElementById('result');
+
+    const recognition = new webkitSpeechRecognition();
+    recognition.lang = 'zh-CN';
+    recognition.continuous = true;
+    recognition.interimResults = false;
+
+    let isSpeaking = false;
+    let isAwake = false;
+    let shouldListen = false; // 控制是否允许自动重启识别
+
+    startBtn.onclick = () => {
+      shouldListen = true;
+      recognition.start();
+      resultText.innerText = '🎙️ 正在监听中... 唤醒词：“你好”';
+    };
+
+    recognition.onresult = (event) => {
+      const transcript = event.results[event.results.length - 1][0].transcript.trim();
+      console.log("识别到：", transcript);
+      resultText.innerText = `你说了：${transcript}`;
+
+      if (!isAwake && transcript.includes("你好")) {
+        isAwake = true;
+        speakText("你好，我在听。请提问。");
+        return;
+      }
+
+      if (isAwake && !isSpeaking) {
+        stopSpeaking();
+        resultText.innerText += `\n发送内容：${transcript}\nDeepSeek 回复：`;
+        sendStreamToDeepSeek(transcript);
+      }
+    };
+
+    recognition.onend = () => {
+      if (shouldListen) {
+        setTimeout(() => {
+          try {
+            recognition.start();
+          } catch (e) {
+            console.warn('自动重启语音识别失败，需用户操作');
+          }
+        }, 500);
+      }
+    };
+
+    async function sendStreamToDeepSeek(text) {
+      const response = await fetch('https://api.deepseek.com/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer sk-c4490148726f4d04a05da9c4aa8dd0a1'
+        },
+        body: JSON.stringify({
+          model: 'deepseek-chat',
+          messages: [{ role: 'user', content: text }],
+          temperature: 0.8,
+          stream: true
+        })
+      });
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let buffer = '';
+      let speechBuffer = '';
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const lines = buffer.split('\n').filter(line => line.startsWith('data:'));
+        for (const line of lines) {
+          const jsonStr = line.replace('data: ', '').trim();
+          if (jsonStr === '[DONE]') continue;
+          try {
+            const data = JSON.parse(jsonStr);
+            const content = data.choices?.[0]?.delta?.content;
+            if (content) {
+              resultText.innerText += content;
+              speechBuffer += content;
+              if (speechBuffer.length >= 10) {
+                speakText(speechBuffer);
+                speechBuffer = '';
+              }
+            }
+          } catch (err) {
+            console.error('解析错误：', err);
+          }
+        }
+        buffer = '';
+      }
+
+      if (speechBuffer.length > 0) speakText(speechBuffer);
+    }
+
+    function speakText(text) {
+      stopSpeaking();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'zh-CN';
+      utterance.onstart = () => { isSpeaking = true; };
+      utterance.onend = () => { isSpeaking = false; };
+      speechSynthesis.speak(utterance);
+    }
+
+    function stopSpeaking() {
+      if (speechSynthesis.speaking) {
+        speechSynthesis.cancel();
+        isSpeaking = false;
+      }
+    }
+  </script>
+</body>
+</html>
