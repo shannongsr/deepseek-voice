@@ -70,6 +70,7 @@
       const decoder = new TextDecoder('utf-8');
       let buffer = '';
       let speechBuffer = '';
+      let tokenCount = 0;
 
       while (true) {
         const { value, done } = await reader.read();
@@ -86,9 +87,25 @@
             if (content) {
               resultText.innerText += content;
               speechBuffer += content;
-              if (speechBuffer.length >= 10) {
-                speakText(speechBuffer);
-                speechBuffer = '';
+              tokenCount++;
+
+              let splitIndex = Math.max(
+                speechBuffer.lastIndexOf("。"),
+                speechBuffer.lastIndexOf("！"),
+                speechBuffer.lastIndexOf("？")
+              );
+
+              if (splitIndex !== -1 || tokenCount >= 10) {
+                const sentence =
+                  splitIndex !== -1
+                    ? speechBuffer.slice(0, splitIndex + 1)
+                    : speechBuffer;
+                await speakText(sentence);
+                speechBuffer = splitIndex !== -1 ? speechBuffer.slice(splitIndex + 1) : '';
+                tokenCount = 0;
+
+                // 模拟“监听机会”
+                await waitAndCheckInterrupt(1000); // 1秒内可说话打断
               }
             }
           } catch (err) {
@@ -98,20 +115,45 @@
         buffer = '';
       }
 
-      if (speechBuffer.length > 0) speakText(speechBuffer);
+      if (speechBuffer.length > 0) await speakText(speechBuffer);
     }
 
     function speakText(text) {
-      stopSpeaking();
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = 'zh-CN';
-      utterance.onstart = () => { isSpeaking = true; };
-      utterance.onend = () => { isSpeaking = false; };
-      speechSynthesis.speak(utterance);
+      return new Promise((resolve) => {
+        stopSpeaking();
+        recognition.stop(); // 说话前暂停监听
+
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'zh-CN';
+        utterance.pitch = 1.0;
+        utterance.rate = 1.0;
+        utterance.volume = 1.0;
+        utterance.onstart = () => { isSpeaking = true; };
+        utterance.onend = () => {
+          isSpeaking = false;
+          resolve();
+        };
+        speechSynthesis.speak(utterance);
+      });
+    }
+
+    function waitAndCheckInterrupt(ms) {
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          if (shouldListen) {
+            try {
+              recognition.start();
+            } catch (e) {
+              console.warn('暂停后恢复监听失败');
+            }
+          }
+          resolve();
+        }, ms);
+      });
     }
 
     function stopSpeaking() {
-      if (speechSynthesis.speaking) {
+      if (speechSynthesis.speaking || speechSynthesis.pending) {
         speechSynthesis.cancel();
         isSpeaking = false;
       }
